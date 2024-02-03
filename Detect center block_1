@@ -1,0 +1,86 @@
+import cv2
+import mediapipe as mp
+import time
+import pygame
+
+# 初始化pygame
+pygame.mixer.init()
+
+# 加載音樂文件
+pygame.mixer.music.load('mixed-flute-keys-melody_126bpm (online-audio-converter.com).mp3')
+
+cap = cv2.VideoCapture(0)
+mpHands = mp.solutions.hands            # mediapipe 偵測手掌方法
+hands = mpHands.Hands()
+mpDraw = mp.solutions.drawing_utils     # mediapipe 繪圖方法
+handLmsStyle = mpDraw.DrawingSpec(color=(0, 255, 247), thickness=3)  # 點BGR
+handConStyle = mpDraw.DrawingSpec(color=(209, 85, 39), thickness=2)  # 線
+pTime = 0
+cTime = 0
+
+# 設置中心的區塊(之後要設為洞的位置)
+center_x, center_y = int(cap.get(3) // 2), int(cap.get(4) // 2)     # 讀取畫面的中心
+box_size = 36  # 大小
+
+# 上次進入區塊的時間
+last_entry_time = 0
+# 是否正在播放音樂
+is_playing_music = False
+
+while True:
+    ret, img = cap.read()
+    if ret:
+        imgRGB = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        result = hands.process(imgRGB)
+        imgHeight = img.shape[0]
+        imgWidth = img.shape[1]
+        hand_centers = []  # 存储所有手掌的中心點座標
+        if result.multi_hand_landmarks:
+            for handLms in result.multi_hand_landmarks:
+                # 節點繪製
+                mpDraw.draw_landmarks(img, handLms, mpHands.HAND_CONNECTIONS, handLmsStyle, handConStyle)
+                # 計算手心位置
+                hand_center_x = int((handLms.landmark[0].x + handLms.landmark[1].x + handLms.landmark[5].x +
+                                     handLms.landmark[9].x + handLms.landmark[13].x + handLms.landmark[17].x) /
+                                    6 * imgWidth)
+                hand_center_y = int((handLms.landmark[0].y + handLms.landmark[1].y + handLms.landmark[5].y +
+                                     handLms.landmark[9].y + handLms.landmark[13].y + handLms.landmark[17].y) /
+                                    6 * imgHeight)
+                hand_centers.append((hand_center_x, hand_center_y))
+
+                # 計算區塊內的節點
+                nodes_in_box = sum(1 for lm in handLms.landmark if
+                                   (center_x - box_size < lm.x * imgWidth < center_x + box_size) and
+                                   (center_y - box_size < lm.y * imgHeight < center_y + box_size))
+
+                # 如果手掌在矩形中停留2秒以上或手心在矩形區塊内且停留超过2秒，則觸發音樂
+                if (nodes_in_box >= 4 or
+                        ((center_x - box_size < hand_center_x < center_x + box_size) and
+                         (center_y - box_size < hand_center_y < center_y + box_size))):
+                    if time.time() - last_entry_time >= 2 and not is_playing_music:
+                        # 播放音樂
+                        pygame.mixer.music.play()
+                        # 更新布林值
+                        is_playing_music = True
+                        # 更新上次進入區塊的時間
+                        last_entry_time = time.time()
+                else:
+                    # 如果手掌離開矩形或手心位置不在矩形内，則重置進入矩形的時間
+                    last_entry_time = 0
+
+        # 檢查音樂是否播放完
+        if is_playing_music and not pygame.mixer.music.get_busy():
+            is_playing_music = False
+
+        # 在畫面上顯示區塊位置
+        cv2.rectangle(img, (int(center_x - box_size), int(center_y - box_size)),
+                      (int(center_x + box_size), int(center_y + box_size)), (255, 0, 0), 2)
+
+        cv2.imshow('img', img)
+
+    if cv2.waitKey(1) == ord('q'):
+        break
+
+pygame.mixer.music.stop()  # 停止播放音樂
+cap.release()
+cv2.destroyAllWindows()
