@@ -1,0 +1,132 @@
+import cv2
+import mediapipe as mp
+import time
+import pygame
+
+# 初始化pygame
+pygame.mixer.init()
+
+# 音樂文件名稱與編號的對應關係
+music_files = {
+    1: 'mixed-flute-keys-melody_126bpm (online-audio-converter.com).mp3',
+    2: 'chill-trap-flute-melody.mp3',
+    3: 'vintage-gentle-flute.mp3',
+}
+
+# 加载音乐文件
+# pygame.mixer.music.load(music_files[1])  # 默认加载第一首音乐
+# pygame.mixer.music.set_volume(0.5)  # 设置音量为50%
+
+cap = cv2.VideoCapture(0)
+mpHands = mp.solutions.hands
+hands = mpHands.Hands()
+mpDraw = mp.solutions.drawing_utils
+handLmsStyle = mpDraw.DrawingSpec(color=(0, 255, 247), thickness=3)  # 点BGR
+handConStyle = mpDraw.DrawingSpec(color=(209, 85, 39), thickness=2)  # 线
+
+# 设置画面左右两个矩形区域的位置和大小
+box1_center_x, box1_center_y = int(cap.get(3) // 3), int(cap.get(4) // 2)
+box2_center_x, box2_center_y = int(cap.get(3) * 2 // 3), int(cap.get(4) // 2)
+box_size = 36
+
+# 上次进入矩形区域的时间
+last_entry_time1 = 0
+last_entry_time2 = 0
+last_entry_time3 = 0
+# 是否正在播放音乐的标志位
+is_playing_music = False
+# 是否同时在两个矩形区域内的标志位
+# is_in_box1 = False
+# is_in_box2 = False
+
+while True:
+    ret, img = cap.read()
+    if ret:
+        imgRGB = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        result = hands.process(imgRGB)
+        imgHeight = img.shape[0]
+        imgWidth = img.shape[1]
+        hand_centers = []  # 存储所有手掌的中心点坐标
+        if result.multi_hand_landmarks:
+            for handLms in result.multi_hand_landmarks:
+                # 绘制手部关键点
+                mpDraw.draw_landmarks(img, handLms, mpHands.HAND_CONNECTIONS, handLmsStyle, handConStyle)
+                # 计算手心位置
+                hand_center_x = int((handLms.landmark[0].x + handLms.landmark[1].x + handLms.landmark[5].x +
+                                     handLms.landmark[9].x + handLms.landmark[13].x + handLms.landmark[17].x) /
+                                    6 * imgWidth)
+                hand_center_y = int((handLms.landmark[0].y + handLms.landmark[1].y + handLms.landmark[5].y +
+                                     handLms.landmark[9].y + handLms.landmark[13].y + handLms.landmark[17].y) /
+                                    6 * imgHeight)
+                hand_centers.append((hand_center_x, hand_center_y))
+
+                nodes_in_box1 = sum(1 for lm in handLms.landmark if
+                                    (box1_center_x - box_size < lm.x * imgWidth < box1_center_x + box_size) and
+                                    (box1_center_y - box_size < lm.y * imgHeight < box1_center_y + box_size))
+
+                nodes_in_box2 = sum(1 for lm in handLms.landmark if
+                                    (box2_center_x - box_size < lm.x * imgWidth < box2_center_x + box_size) and
+                                    (box2_center_y - box_size < lm.y * imgHeight < box2_center_y + box_size))
+
+            if (box1_center_x - box_size < hand_center_x < box1_center_x + box_size) and \
+                    (box1_center_y - box_size < hand_center_y < box1_center_y + box_size):
+                nodes_in_box1 += 4
+
+            if (box2_center_x - box_size < hand_center_x < box2_center_x + box_size) and \
+                    (box2_center_y - box_size < hand_center_y < box2_center_y + box_size):
+                nodes_in_box2 += 4
+
+            if (nodes_in_box1 >= 4):
+                if time.time() - last_entry_time1 >= 2 and not is_playing_music:
+                    pygame.mixer.music.load(music_files[1])  # 默认加载第一首音乐
+                    pygame.mixer.music.set_volume(0.5)  # 设置音量为50%
+                    # 播放音乐
+                    pygame.mixer.music.play()
+                    # 更新布尔值
+                    is_playing_music = True
+                    # 更新上次进入第二个区域的时间
+                    last_entry_time1 = time.time()
+            else:
+                # 如果手离开第二个矩形或手心位置不在第二个矩形内，则重置进入第二个区域的时间
+                last_entry_time2 = 0
+
+            if (nodes_in_box2 >= 4):
+                if time.time() - last_entry_time2 >= 2 and not is_playing_music:
+                    pygame.mixer.music.load(music_files[2])  # 默认加载第一首音乐
+                    pygame.mixer.music.set_volume(0.5)
+                    # 播放音乐
+                    pygame.mixer.music.play()
+                    # 更新布尔值
+                    is_playing_music = True
+                    # 更新上次进入第二个区域的时间
+                    last_entry_time2 = time.time()
+            else:
+                # 如果手离开第二个矩形或手心位置不在第二个矩形内，则重置进入第二个区域的时间
+                last_entry_time2 = 0
+
+            if nodes_in_box1 >= 2 and nodes_in_box2 >= 2:
+                if time.time() - last_entry_time3 >= 1 and not is_playing_music:
+                    pygame.mixer.music.load(music_files[3])
+                    pygame.mixer.music.play()
+                    is_playing_music = True
+                    last_entry_time3 = time.time()
+
+            if is_playing_music and not pygame.mixer.music.get_busy():
+                is_playing_music = False
+                last_entry_time1 = 0
+                last_entry_time2 = 0
+
+        # 在画面上显示两个矩形区域
+        cv2.rectangle(img, (int(box1_center_x - box_size), int(box1_center_y - box_size)),
+                      (int(box1_center_x + box_size), int(box1_center_y + box_size)), (255, 0, 0), 2)
+        cv2.rectangle(img, (int(box2_center_x - box_size), int(box2_center_y - box_size)),
+                      (int(box2_center_x + box_size), int(box2_center_y + box_size)), (255, 0, 0), 2)
+
+        cv2.imshow('img', img)
+
+    if cv2.waitKey(1) == ord('q'):
+        break
+
+pygame.mixer.music.stop()  # 停止音乐播放
+cap.release()
+cv2.destroyAllWindows()
